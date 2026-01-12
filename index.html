@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>勉強スライム - 学習ストップウォッチ</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="background"></div>
+        
+        <div class="grid-layout">
+            <div class="grid-left">
+                <div id="radar-container">
+                    <canvas id="subjectRadarChart"></canvas>
+                </div>
+            </div>
+
+            <div class="grid-center">
+                <div class="main-screen">
+                    <div id="subject-container">
+                        <label>教科：</label>
+                        <select id="subjectSelect">
+                            <option value="国語">国語</option>
+                            <option value="数学">数学</option>
+                            <option value="英語">英語</option>
+                            <option value="理科">理科</option>
+                            <option value="社会">社会</option>
+                            <option value="その他">その他</option>
+                        </select>
+                    </div>
+
+                    <div id="message">勉強開始！がんばれ自分！</div>
+                    <div id="timer">00:00:00</div> 
+                    
+                    <div class="button-group">
+                        <button id="toggleButton">開始</button>
+                        <button id="finishButton">終了</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-right">
+                <div id="sidebar-right">
+                    <div id="level-display-top-right">
+                        <div class="level-label">Level</div>
+                        <div id="level-value">1</div>
+                    </div>
+                    <div id="right-bar-container">
+                        <div id="gauge">
+                            <div id="gaugeText">0h 0m</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <img id="slime" src="images/スライム1.png" alt="slime">
+
+        <div id="chartModal" class="modal">
+            <div class="modal-content">
+                <span id="closeChart" style="cursor:pointer; float:right; font-size: 24px;">&times;</span>
+                
+                <h2>直近7日間の記録</h2>
+                <div style="height: 300px; position: relative; margin-bottom: 20px;">
+                    <canvas id="studyChart"></canvas>
+                </div>
+
+                <hr>
+
+                <h2>学習カレンダー</h2>
+                <div id="calendar-wrapper" style="margin-bottom: 20px;">
+                    <div id="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <button id="prevMonth">前月</button>
+                        <h3 id="calendarMonthTitle" style="margin: 0;">2024年 5月</h3>
+                        <button id="nextMonth">次月</button>
+                    </div>
+                    <div id="calendar-grid" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; background: #eee; padding: 5px; border-radius: 8px;">
+                        </div>
+                </div>
+
+                <hr>
+        
+                <h3>過去の全履歴</h3>
+                <div id="history-container" style="text-align: left;">
+                    <ul id="history-list" style="list-style: none; padding: 0;">
+                        </ul>                
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
