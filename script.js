@@ -22,7 +22,6 @@ let currentViewDate = new Date();
 // ===================================
 // データ管理 (LocalStorage)
 // ===================================
-
 function saveUserData() {
     localStorage.setItem("study_level", level);
     localStorage.setItem("study_gauge", gaugeLevel);
@@ -44,6 +43,12 @@ window.addEventListener("load", () => {
 
     if (levelValueDisplay) levelValueDisplay.textContent = level;
     
+    updateGaugeDisplay();
+    updateSlimeImage();
+    drawRadarChart();
+});
+
+function updateGaugeDisplay() {
     const reqExp = 100 + (level - 1) * 50;
     if (gaugeBar) gaugeBar.style.height = (gaugeLevel / reqExp * 100) + "%";
 
@@ -51,10 +56,7 @@ window.addEventListener("load", () => {
     const minutes = Math.floor((totalTime % 3600000) / 60000);
     const gText = document.getElementById("gaugeText");
     if (gText) gText.textContent = `${hours}時間 ${minutes}分`;
-
-    updateSlimeImage();
-    drawRadarChart();
-});
+}
 
 // ===================================
 // タイマー表示更新
@@ -109,38 +111,110 @@ finishBtn.addEventListener("click", () => {
     elapsedTime = 0;
     updateDisplay(0);
 
-    // 合計時間の計算
+    // 合計時間の更新
     totalTime += spentTime;
-    const hours = Math.floor(totalTime / 3600000);
-    const minutes = Math.floor((totalTime % 3600000) / 60000);
-    const gText = document.getElementById("gaugeText");
-    if (gText) gText.textContent = `${hours}時間 ${minutes}分`;
-
     saveToLogs(spentTime);
 
     // 経験値とレベルアップ
     const earnedExp = spentTime / 1000;
     gaugeLevel += earnedExp;
 
-    function getRequiredExp(l) { return 100 + (l - 1) * 50; }
+    const getRequiredExp = (l) => 100 + (l - 1) * 50;
 
     while (gaugeLevel >= getRequiredExp(level)) {
         gaugeLevel -= getRequiredExp(level);
         level++;
         updateSlimeImage();
+        alert(`レベルアップ！ Level ${level} になりました！`);
     }
 
-    // 表示反映
-    const percent = (gaugeLevel / getRequiredExp(level)) * 100;
-    if (gaugeBar) gaugeBar.style.height = percent + "%";
     if (levelValueDisplay) levelValueDisplay.textContent = level;
 
-    // LocalStorageへ保存
+    updateGaugeDisplay();
     saveUserData();
-    
     drawRadarChart();
     openChartModal();
 });
+
+// ===================================
+// レーダーチャート 
+// ===================================
+function drawRadarChart() {
+    const canvas = document.getElementById("subjectRadarChart");
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    const log = loadDailyLog();
+    const subjects = ["国語", "数学", "英語", "理科", "社会", "その他"];
+    
+    const subjectTotals = subjects.map(sub => {
+        let totalMs = 0;
+        Object.keys(log).forEach(date => {
+            if (log[date] && log[date][sub]) {
+                totalMs += log[date][sub];
+            }
+        });
+        return totalMs / 3600000; // 時間に変換
+    });
+
+    // --- 単位を動的に変えるロジック ---
+    const maxVal = Math.max(...subjectTotals);
+    let dynamicMax = 1; 
+
+    if (maxVal > 100) {
+        dynamicMax = Math.ceil(maxVal / 50) * 50; 
+    } else if (maxVal > 10) {
+        dynamicMax = Math.ceil(maxVal / 10) * 10; 
+    } else if (maxVal > 1) {
+        dynamicMax = Math.ceil(maxVal);
+    }
+    // ------------------------------
+
+    if (radarChart) radarChart.destroy();
+    radarChart = new Chart(ctx, {
+        type: 'radar',
+        data: {
+            labels: subjects,
+            datasets: [{
+                label: '累計学習時間 (時間)',
+                data: subjectTotals,
+                backgroundColor: 'rgba(76, 175, 80, 0.2)',
+                borderColor: 'rgba(76, 175, 80, 1)',
+                borderWidth: 2,
+                pointRadius: 3
+            }]
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            scales: {
+                r: { 
+                    beginAtZero: true,
+                    suggestedMin: 0,
+                    suggestedMax: dynamicMax, 
+                    ticks: {
+                        stepSize: dynamicMax / 5, 
+                        display: true, 
+                        backdropColor: 'transparent'
+                    },
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.1)'
+                    },
+                    pointLabels: {
+                        font: {
+                            size: 12
+                        }
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false // グラフを大きく見せるためラベルを非表示に
+                }
+            }
+        }
+    });
+}
 
 // ===================================
 // 棒グラフ
@@ -159,72 +233,20 @@ function drawChart() {
         "理科": "#ffd6a5", "社会": "#bdb2ff", "その他": "#eeeeee"
     };
 
-    const datasets = subjects.map(sub => {
-        return {
-            label: sub,
-            data: dates.map(date => (log[date][sub] || 0) / 3600000),
-            backgroundColor: colors[sub]
-        };
-    });
+    const datasets = subjects.map(sub => ({
+        label: sub,
+        data: dates.map(date => (log[date][sub] || 0) / 3600000),
+        backgroundColor: colors[sub]
+    }));
 
     if (barChart) barChart.destroy();
-
     barChart = new Chart(ctx, {
         type: "bar",
         data: { labels: dates, datasets: datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            scales: {
-                x: { stacked: true }, 
-                y: { 
-                    stacked: true, 
-                    beginAtZero: true, 
-                    title: { display: true, text: '時間 (h)' } 
-                }
-            }
-        }
-    });
-}
-
-// ===================================
-// レーダーチャート
-// ===================================
-function drawRadarChart() {
-    const canvas = document.getElementById("subjectRadarChart");
-    if (!canvas || typeof Chart === 'undefined') return;
-
-    const ctx = canvas.getContext("2d");
-    const log = loadDailyLog();
-    const subjects = ["国語", "数学", "英語", "理科", "社会", "その他"];
-    
-    const subjectTotals = subjects.map(sub => {
-        let total = 0;
-        Object.values(log).forEach(dayData => {
-            if (dayData[sub]) total += dayData[sub];
-        });
-        return total / 3600000;
-    });
-
-    if (radarChart) radarChart.destroy();
-    radarChart = new Chart(ctx, {
-        type: 'radar',
-        data: {
-            labels: subjects,
-            datasets: [{
-                label: '累計(時間)',
-                data: subjectTotals,
-                backgroundColor: 'rgba(76, 175, 80, 0.2)',
-                borderColor: 'rgba(76, 175, 80, 1)',
-                borderWidth: 2
-            }]
-        },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            scales: {
-                r: { suggestedMin: 0, suggestedMax: 1 }
-            }
+            scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
         }
     });
 }
@@ -244,8 +266,7 @@ function drawCalendar() {
     const month = currentViewDate.getMonth();
     title.textContent = `${year}年 ${month + 1}月`;
 
-    const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
-    weekdays.forEach(w => {
+    ["日", "月", "火", "水", "木", "金", "土"].forEach(w => {
         const div = document.createElement("div");
         div.className = "calendar-weekday";
         div.textContent = w;
@@ -255,9 +276,7 @@ function drawCalendar() {
     const firstDay = new Date(year, month, 1).getDay();
     const lastDate = new Date(year, month + 1, 0).getDate();
 
-    for (let i = 0; i < firstDay; i++) {
-        grid.appendChild(document.createElement("div"));
-    }
+    for (let i = 0; i < firstDay; i++) grid.appendChild(document.createElement("div"));
 
     for (let date = 1; date <= lastDate; date++) {
         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
@@ -265,9 +284,7 @@ function drawCalendar() {
         dayDiv.className = "calendar-day";
         dayDiv.textContent = date;
 
-        const todayStr = new Date().toLocaleDateString('sv-SE');
-        if (dateStr === todayStr) dayDiv.classList.add("today-mark");
-
+        if (dateStr === new Date().toLocaleDateString('sv-SE')) dayDiv.classList.add("today-mark");
         if (log[dateStr]) {
             dayDiv.classList.add("has-study-data");
             const dot = document.createElement("div");
@@ -278,18 +295,11 @@ function drawCalendar() {
     }
 }
 
-// カレンダー切り替えイベント
-document.getElementById("prevMonth").onclick = () => {
-    currentViewDate.setMonth(currentViewDate.getMonth() - 1);
-    drawCalendar();
-};
-document.getElementById("nextMonth").onclick = () => {
-    currentViewDate.setMonth(currentViewDate.getMonth() + 1);
-    drawCalendar();
-};
+document.getElementById("prevMonth").onclick = () => { currentViewDate.setMonth(currentViewDate.getMonth() - 1); drawCalendar(); };
+document.getElementById("nextMonth").onclick = () => { currentViewDate.setMonth(currentViewDate.getMonth() + 1); drawCalendar(); };
 
 // ===================================
-// 過去の履歴リスト表示
+// 履歴表示
 // ===================================
 function displayHistory() {
     const historyList = document.getElementById("history-list");
@@ -298,77 +308,49 @@ function displayHistory() {
     const log = loadDailyLog();
     const dates = Object.keys(log).sort().reverse(); 
 
-    historyList.innerHTML = ""; 
-    if (dates.length === 0) {
-        historyList.innerHTML = "<li>まだ記録がありません。</li>";
-        return;
-    }
+    historyList.innerHTML = dates.length === 0 ? "<li>まだ記録がありません。</li>" : ""; 
 
     dates.forEach(date => {
-        const dayData = log[date];
         let dailyTotalMs = 0;
         let details = [];
-
-        for (const [subject, ms] of Object.entries(dayData)) {
+        for (const [subject, ms] of Object.entries(log[date])) {
             dailyTotalMs += ms;
-            const mins = Math.floor(ms / 60000);
-            if (mins > 0) details.push(`${subject}: ${mins}分`);
+            details.push(`${subject}: ${Math.floor(ms / 60000)}分`);
         }
-
-        const totalHours = (dailyTotalMs / 3600000).toFixed(1);
         const li = document.createElement("li");
         li.style.borderBottom = "1px solid #eee";
         li.style.padding = "10px 0";
-        li.innerHTML = `
-            <div style="font-weight: bold; color: #333;">${date} — 合計 ${totalHours}時間</div>
-            <div style="font-size: 0.9rem; color: #666;">${details.join(" / ")}</div>
-        `;
+        li.innerHTML = `<strong>${date} — 合計 ${(dailyTotalMs / 3600000).toFixed(1)}時間</strong><br><small>${details.join(" / ")}</small>`;
         historyList.appendChild(li);
     });
 }
 
 // ===================================
-// モーダル制御
+// モーダル
 // ===================================
 function openChartModal() {
     const chartModal = document.getElementById("chartModal");
     if (chartModal) {
         chartModal.style.display = "block";
-        setTimeout(() => {
-            drawChart();
-            displayHistory(); 
-            drawCalendar();
-        }, 200);
+        setTimeout(() => { drawChart(); displayHistory(); drawCalendar(); }, 200);
     }
 }
 
-const closeBtn = document.getElementById("closeChart");
-if (closeBtn) {
-    closeBtn.addEventListener("click", () => {
-        document.getElementById("chartModal").style.display = "none";
-    });
-}
+document.getElementById("closeChart").onclick = () => { document.getElementById("chartModal").style.display = "none"; };
 
-// ===================================
-// 補助関数
-// ===================================
 function saveToLogs(spentTime) {
-    const subSelect = document.getElementById("subjectSelect");
-    if (!subSelect) return;
-    const selectedSubject = subSelect.value;
+    const selectedSubject = document.getElementById("subjectSelect").value;
     const today = new Date().toLocaleDateString('sv-SE'); 
     const log = loadDailyLog();
-    
     if (!log[today]) log[today] = {};
-    if (!log[today][selectedSubject]) log[today][selectedSubject] = 0;
-    log[today][selectedSubject] += spentTime;
-    
+    log[today][selectedSubject] = (log[today][selectedSubject] || 0) + spentTime;
     localStorage.setItem("dailyStudyLog", JSON.stringify(log));
 }
 
 function updateSlimeImage() {
     if (!slimeImg) return;
-    if (level >= 10) slimeImg.src = "images/スライム3.png";
-    else if (level >= 5) slimeImg.src = "images/スライム2.png";
-    else slimeImg.src = "images/スライム1.png";
+    let src = "images/スライム1.png";
+    if (level >= 10) src = "images/スライム3.png";
+    else if (level >= 5) src = "images/スライム2.png";
+    slimeImg.src = src;
 }
