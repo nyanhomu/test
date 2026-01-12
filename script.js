@@ -8,6 +8,10 @@ const gaugeBar = document.getElementById("gauge");
 const levelValueDisplay = document.getElementById("level-value");
 const slimeImg = document.getElementById("slime");
 
+const defaultSubjects = ["国語", "数学", "英語", "理科", "社会", "その他"];
+let subjects = [];
+let targetMinutes = {};
+
 let elapsedTime = 0;
 let timerInterval = null;
 let isRunning = false;
@@ -26,6 +30,8 @@ function saveUserData() {
     localStorage.setItem("study_level", level);
     localStorage.setItem("study_gauge", gaugeLevel);
     localStorage.setItem("study_totalTime", totalTime);
+    localStorage.setItem("study_targetMinutes", JSON.stringify(targetMinutes));
+    localStorage.setItem("study_subjects", JSON.stringify(subjects));
 }
 
 function loadDailyLog() {
@@ -40,13 +46,39 @@ window.addEventListener("load", () => {
     level = Number(localStorage.getItem("study_level")) || 1;
     gaugeLevel = Number(localStorage.getItem("study_gauge")) || 0;
     totalTime = Number(localStorage.getItem("study_totalTime")) || 0;
+    
+    const savedSubjects = localStorage.getItem("study_subjects");
+    subjects = savedSubjects ? JSON.parse(savedSubjects) : [...defaultSubjects];
+    
+    const savedTargets = localStorage.getItem("study_targetMinutes");
+    targetMinutes = savedTargets ? JSON.parse(savedTargets) : {};
+    
+    subjects.forEach(sub => {
+        if (targetMinutes[sub] === undefined) targetMinutes[sub] = 600; 
+    });
 
     if (levelValueDisplay) levelValueDisplay.textContent = level;
     
+    updateSubjectSelect();
     updateGaugeDisplay();
     updateSlimeImage();
     drawRadarChart();
 });
+
+
+function updateSubjectSelect() {
+    const select = document.getElementById("subjectSelect");
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = "";
+    subjects.forEach(sub => {
+        const opt = document.createElement("option");
+        opt.value = sub;
+        opt.textContent = sub;
+        select.appendChild(opt);
+    });
+    if (subjects.includes(currentVal)) select.value = currentVal;
+}
 
 function updateGaugeDisplay() {
     const reqExp = 100 + (level - 1) * 50;
@@ -59,22 +91,83 @@ function updateGaugeDisplay() {
 }
 
 // ===================================
+// 目標設定モーダル
+// ===================================
+document.getElementById("openTargetBtn").onclick = () => {
+    renderTargetModal();
+    document.getElementById("targetModal").style.display = "block";
+};
+
+function renderTargetModal() {
+    const container = document.getElementById("targetInputsContainer");
+    container.innerHTML = ""; 
+    subjects.forEach((sub, index) => {
+        const totalMin = targetMinutes[sub] || 0;
+        const h = Math.floor(totalMin / 60);
+        const m = totalMin % 60;
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; justify-content:space-between; margin-bottom:12px; align-items:center; border-bottom:1px solid #eee; padding-bottom:8px;";
+        row.innerHTML = `
+            <div style="display:flex; align-items:center; gap:8px;">
+                <button class="del-sub-btn" data-index="${index}" style="background:#ff4d4d; color:white; border:none; border-radius:50%; width:22px; height:22px; cursor:pointer;">×</button>
+                <span style="font-weight:bold;">${sub}</span>
+            </div>
+            <div>
+                <input type="number" class="target-h" value="${h}" style="width:45px;"> 時 
+                <input type="number" class="target-m" value="${m}" style="width:45px;"> 分
+            </div>
+        `;
+        container.appendChild(row);
+    });
+
+    document.querySelectorAll(".del-sub-btn").forEach(btn => {
+        btn.onclick = (e) => {
+            const idx = e.target.dataset.index;
+            if (confirm(`「${subjects[idx]}」を削除しますか？`)) {
+                subjects.splice(idx, 1);
+                renderTargetModal(); // 再描画
+            }
+        };
+    });
+}
+
+document.getElementById("addSubjectBtn").onclick = () => {
+    const input = document.getElementById("newSubjectName");
+    const name = input.value.trim();
+    if (name && !subjects.includes(name)) {
+        subjects.push(name);
+        targetMinutes[name] = 600;
+        input.value = "";
+        renderTargetModal();
+    } else {
+        alert("名前が空か、既に同じ教科があります。");
+    }
+};
+
+document.getElementById("saveTargetsBtn").onclick = () => {
+    const hInps = document.querySelectorAll(".target-h");
+    const mInps = document.querySelectorAll(".target-m");
+    subjects.forEach((sub, i) => {
+        targetMinutes[sub] = (parseInt(hInps[i].value) || 0) * 60 + (parseInt(mInps[i].value) || 0);
+    });
+    saveUserData();
+    updateSubjectSelect();
+    document.getElementById("targetModal").style.display = "none";
+    drawRadarChart();
+};
+
+document.getElementById("closeTarget").onclick = () => document.getElementById("targetModal").style.display = "none";
+
+// ===================================
 // タイマー表示更新
 // ===================================
 function updateDisplay(time) {
     const minutes = Math.floor(time / 60000);
     const seconds = Math.floor((time % 60000) / 1000);
     const tenth = Math.floor((time % 1000) / 100);
-
-    timeDisplay.textContent = 
-        String(minutes).padStart(2, "0") + ":" + 
-        String(seconds).padStart(2, "0") + ":" + 
-        tenth;
+    timeDisplay.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}:${tenth}`;
 }
 
-// ===================================
-// 開始 / 停止ボタン
-// ===================================
 toggleBtn.addEventListener("click", () => {
     if (isRunning) {
         clearInterval(timerInterval);
@@ -95,12 +188,8 @@ toggleBtn.addEventListener("click", () => {
     }
 });
 
-// ===================================
-// 終了ボタン
-// ===================================
 finishBtn.addEventListener("click", () => {
     if (elapsedTime === 0) return;
-
     clearInterval(timerInterval);
     isRunning = false;
     toggleBtn.textContent = "開始";
@@ -111,25 +200,19 @@ finishBtn.addEventListener("click", () => {
     elapsedTime = 0;
     updateDisplay(0);
 
-    // 合計時間の更新
     totalTime += spentTime;
     saveToLogs(spentTime);
 
-    // 経験値とレベルアップ
-    const earnedExp = spentTime / 1000;
-    gaugeLevel += earnedExp;
-
+    gaugeLevel += spentTime / 1000;
     const getRequiredExp = (l) => 100 + (l - 1) * 50;
-
     while (gaugeLevel >= getRequiredExp(level)) {
         gaugeLevel -= getRequiredExp(level);
         level++;
         updateSlimeImage();
-        alert(`レベルアップ！ Level ${level} になりました！`);
+        alert(`レベルアップ！ Level ${level}`);
     }
 
     if (levelValueDisplay) levelValueDisplay.textContent = level;
-
     updateGaugeDisplay();
     saveUserData();
     drawRadarChart();
@@ -137,153 +220,110 @@ finishBtn.addEventListener("click", () => {
 });
 
 // ===================================
-// レーダーチャート 
+// グラフ描画
 // ===================================
 function drawRadarChart() {
     const canvas = document.getElementById("subjectRadarChart");
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     const log = loadDailyLog();
-    const subjects = ["国語", "数学", "英語", "理科", "社会", "その他"];
     
     const subjectTotals = subjects.map(sub => {
         let totalMs = 0;
-        Object.keys(log).forEach(date => {
-            if (log[date] && log[date][sub]) {
-                totalMs += log[date][sub];
-            }
-        });
-        return totalMs / 3600000; // 時間に変換
+        Object.keys(log).forEach(date => { if (log[date] && log[date][sub]) totalMs += log[date][sub]; });
+        return totalMs / 3600000;
     });
 
-    // --- 単位を動的に変えるロジック ---
-    const maxVal = Math.max(...subjectTotals);
-    let dynamicMax = 1; 
-
-    if (maxVal > 100) {
-        dynamicMax = Math.ceil(maxVal / 50) * 50; 
-    } else if (maxVal > 10) {
-        dynamicMax = Math.ceil(maxVal / 10) * 10; 
-    } else if (maxVal > 1) {
-        dynamicMax = Math.ceil(maxVal);
-    }
-    // ------------------------------
+    const targetData = subjects.map(sub => (targetMinutes[sub] || 0) / 60);
+    const maxVal = Math.max(...subjectTotals, ...targetData, 1);
 
     if (radarChart) radarChart.destroy();
     radarChart = new Chart(ctx, {
         type: 'radar',
         data: {
             labels: subjects,
-            datasets: [{
-                label: '累計学習時間 (時間)',
-                data: subjectTotals,
-                backgroundColor: 'rgba(76, 175, 80, 0.2)',
-                borderColor: 'rgba(76, 175, 80, 1)',
-                borderWidth: 2,
-                pointRadius: 3
-            }]
+            datasets: [
+                {
+                    label: '実績 (時間)',
+                    data: subjectTotals,
+                    backgroundColor: 'rgba(76, 175, 80, 0.2)',
+                    borderColor: 'rgba(76, 175, 80, 1)',
+                    borderWidth: 2
+                },
+                {
+                    label: '目標 (時間)',
+                    data: targetData,
+                    backgroundColor: 'rgba(255, 0, 0, 0.05)',
+                    borderColor: 'rgba(255, 0, 0, 0.5)',
+                    borderDash: [5, 5],
+                    borderWidth: 1,
+                    pointRadius: 0
+                }
+            ]
         },
         options: { 
             responsive: true, 
             maintainAspectRatio: false,
-            scales: {
-                r: { 
-                    beginAtZero: true,
-                    suggestedMin: 0,
-                    suggestedMax: dynamicMax, 
-                    ticks: {
-                        stepSize: dynamicMax / 5, 
-                        display: true, 
-                        backdropColor: 'transparent'
-                    },
-                    grid: {
-                        color: 'rgba(0, 0, 0, 0.1)'
-                    },
-                    pointLabels: {
-                        font: {
-                            size: 12
-                        }
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: false // グラフを大きく見せるためラベルを非表示に
-                }
-            }
+            scales: { r: { beginAtZero: true, suggestedMax: maxVal, ticks: { display: true } } }
         }
     });
 }
 
-// ===================================
-// 棒グラフ
-// ===================================
 function drawChart() {
     const canvas = document.getElementById("studyChart");
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     const log = loadDailyLog(); 
     const dates = Object.keys(log).sort().slice(-7); 
-    const subjects = ["国語", "数学", "英語", "理科", "社会", "その他"];
     
-    const colors = {
-        "国語": "#ffadad", "数学": "#9bf6ff", "英語": "#caffbf",
-        "理科": "#ffd6a5", "社会": "#bdb2ff", "その他": "#eeeeee"
-    };
+    // ログにある全教科を特定
+    const loggedSubjects = new Set();
+    dates.forEach(date => {
+        Object.keys(log[date]).forEach(sub => loggedSubjects.add(sub));
+    });
+    const displaySubjects = Array.from(loggedSubjects);
 
-    const datasets = subjects.map(sub => ({
-        label: sub,
-        data: dates.map(date => (log[date][sub] || 0) / 3600000),
-        backgroundColor: colors[sub]
-    }));
+    const datasets = displaySubjects.map((sub, i) => {
+        const fixedColors = { "国語": "#ffadad", "数学": "#9bf6ff", "英語": "#caffbf", "理科": "#ffd6a5", "社会": "#bdb2ff", "その他": "#eeeeee" };
+        const bgColor = fixedColors[sub] || `hsl(${(i * 137.5) % 360}, 70%, 80%)`;
+        return {
+            label: sub,
+            data: dates.map(date => (log[date][sub] || 0) / 3600000),
+            backgroundColor: bgColor
+        };
+    });
 
     if (barChart) barChart.destroy();
-    barChart = new Chart(ctx, {
-        type: "bar",
-        data: { labels: dates, datasets: datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
-        }
+    barChart = new Chart(ctx, { 
+        type: "bar", 
+        data: { labels: dates, datasets: datasets }, 
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } } 
     });
 }
 
-// ===================================
-// カレンダー描画
-// ===================================
 function drawCalendar() {
     const grid = document.getElementById("calendar-grid");
     const title = document.getElementById("calendarMonthTitle");
     if(!grid || !title) return;
-
     const log = loadDailyLog();
     grid.innerHTML = "";
-    
     const year = currentViewDate.getFullYear();
     const month = currentViewDate.getMonth();
     title.textContent = `${year}年 ${month + 1}月`;
-
     ["日", "月", "火", "水", "木", "金", "土"].forEach(w => {
         const div = document.createElement("div");
         div.className = "calendar-weekday";
         div.textContent = w;
         grid.appendChild(div);
     });
-
     const firstDay = new Date(year, month, 1).getDay();
     const lastDate = new Date(year, month + 1, 0).getDate();
-
     for (let i = 0; i < firstDay; i++) grid.appendChild(document.createElement("div"));
-
     for (let date = 1; date <= lastDate; date++) {
         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
         const dayDiv = document.createElement("div");
         dayDiv.className = "calendar-day";
         dayDiv.textContent = date;
-
         if (dateStr === new Date().toLocaleDateString('sv-SE')) dayDiv.classList.add("today-mark");
         if (log[dateStr]) {
             dayDiv.classList.add("has-study-data");
@@ -298,25 +338,16 @@ function drawCalendar() {
 document.getElementById("prevMonth").onclick = () => { currentViewDate.setMonth(currentViewDate.getMonth() - 1); drawCalendar(); };
 document.getElementById("nextMonth").onclick = () => { currentViewDate.setMonth(currentViewDate.getMonth() + 1); drawCalendar(); };
 
-// ===================================
-// 履歴表示
-// ===================================
 function displayHistory() {
     const historyList = document.getElementById("history-list");
     if (!historyList) return;
-
     const log = loadDailyLog();
     const dates = Object.keys(log).sort().reverse(); 
-
     historyList.innerHTML = dates.length === 0 ? "<li>まだ記録がありません。</li>" : ""; 
-
     dates.forEach(date => {
         let dailyTotalMs = 0;
         let details = [];
-        for (const [subject, ms] of Object.entries(log[date])) {
-            dailyTotalMs += ms;
-            details.push(`${subject}: ${Math.floor(ms / 60000)}分`);
-        }
+        for (const [subject, ms] of Object.entries(log[date])) { dailyTotalMs += ms; details.push(`${subject}: ${Math.floor(ms / 60000)}分`); }
         const li = document.createElement("li");
         li.style.borderBottom = "1px solid #eee";
         li.style.padding = "10px 0";
@@ -325,9 +356,6 @@ function displayHistory() {
     });
 }
 
-// ===================================
-// モーダル
-// ===================================
 function openChartModal() {
     const chartModal = document.getElementById("chartModal");
     if (chartModal) {
